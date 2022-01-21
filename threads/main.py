@@ -373,6 +373,7 @@ class JSONPlaceholderTreadCommand:
         for thread in my_threads:
             thread.join()
 
+        self.logger.info(f'run_threads_job method finish success!')
 
 def main():
 
