@@ -9,6 +9,7 @@ import urllib3
 import timing
 import math
 import threading
+import multiprocessing
 import logging
 
 
@@ -18,11 +19,11 @@ class Photo:
     def __init__(self, *, albumId: int, id: int, title: str, url: str, thumbnailUrl: str):
         """
 
-        :param albumId:
-        :param id:
-        :param title:
-        :param url:
-        :param thumbnailUrl:
+        :param albumId: идентификатор альбома
+        :param id: идентификатор фото
+        :param title: название фото
+        :param url: ссылка для фото
+        :param thumbnailUrl: ссылка для сжатого фото
         """
 
         self.albumId = albumId
@@ -42,13 +43,13 @@ class Photo:
 class Album:
     """Объект альбома."""
 
-    def __init__(self, *, userId, id, title, photos):
+    def __init__(self, *, userId: int, id: int, title: str, photos: list[Photo]):
         """
 
-        :param userId:
-        :param id:
-        :param title:
-        :param photos:
+        :param userId: идентификатор пользователя
+        :param id: идентификатор альбома
+        :param title: название альбома
+        :param photos: список с фото
         """
 
         self.userId = userId
@@ -73,10 +74,10 @@ class PhotoSchema(marshmallow.Schema):
     thumbnailUrl = marshmallow.fields.Url(required=True)
 
     @marshmallow.post_load
-    def make_user(self, data, **kwargs):
+    def make_user(self, data: dict[str, typing.Union[int, str]], **kwargs) -> Photo:
         """
 
-        :param data:
+        :param data: словарь с элементами для создания экземпляра Photo
         :param kwargs:
         :return:
         """
@@ -92,10 +93,10 @@ class AlbumSchema(marshmallow.Schema):
     photos = marshmallow.fields.Nested(PhotoSchema, required=True, many=True)
 
     @marshmallow.post_load
-    def make_user(self, data, **kwargs):
+    def make_user(self, data: dict[str, typing.Union[int, str]], **kwargs) -> Album:
         """
 
-        :param data:
+        :param data: словарь с элементами для создания экземпляра Album
         :param kwargs:
         :return:
         """
@@ -106,7 +107,7 @@ class Client:
     """Объект для http запросов на определённый url."""
 
     def __new__(cls, *args, **kwargs):
-        """Добавляет логгер к классу.
+        """Добавляет logger к классу.
 
         :param args:
         :param kwargs:
@@ -161,7 +162,7 @@ class Client:
         self.get(stream=True)
 
     def get_photo_raw(self) -> urllib3.response.HTTPResponse:
-        """
+        """Возвращает файлоподобнай объект.
 
         :return:
         """
@@ -195,7 +196,7 @@ class Storage:
     """Реализует сохранение файла."""
 
     def __new__(cls, *args, **kwargs):
-        """Добавляет логгер к классу.
+        """Добавляет logger к классу.
 
         :param args:
         :param kwargs:
@@ -225,13 +226,13 @@ class Storage:
         self.base_dir = pathlib.Path(base_dir_name)
 
     def save_file(self, file: typing.Any, file_directory: str, file_name: str,
-                  file_extension: typing.Optional[str] = None):
+                  file_extension: typing.Optional[str] = None) -> None:
         """Сохраняет файл. Создаёт каталог, если он не существует.
 
         :param file: файлоподобный объект
-        :param file_directory:
-        :param file_name:
-        :param file_extension:
+        :param file_directory: каталог для сохранения
+        :param file_name: название файла
+        :param file_extension: расширение файла
         :return:
         """
 
@@ -254,7 +255,7 @@ class JSONPlaceholderTreadCommand:
     """Класс для обработки и манипулирования данными."""
 
     def __new__(cls, *args, **kwargs):
-        """Добавляет логгер к классу.
+        """Добавляет logger к классу.
 
         :param args:
         :param kwargs:
@@ -318,7 +319,7 @@ class JSONPlaceholderTreadCommand:
         self.logger.debug(f'Data downloaded and is valid')
 
     # @timing.timing
-    def download_and_save_photo(self, album_list: list[Album]):
+    def download_and_save_photos(self, album_list: list[Album]):
         """Загружает и сохраняет фотографии.
 
         :param album_list:
@@ -366,7 +367,7 @@ class JSONPlaceholderTreadCommand:
         my_threads = list()
 
         for list_chunk in self.get_list_chunk_list(self.valid_data, self.thread_count):
-            my_thread = threading.Thread(target=self.download_and_save_photo, args=(list_chunk,))
+            my_thread = threading.Thread(target=self.download_and_save_photos, args=(list_chunk,))
             my_threads.append(my_thread)
             my_thread.start()
 
@@ -375,12 +376,33 @@ class JSONPlaceholderTreadCommand:
 
         self.logger.info(f'run_threads_job method finish success!')
 
+    @timing.timing
+    def run_process_job(self):
+        """Выполняет работу в процессах.
+
+        :return:
+        """
+
+        my_processes = list()
+
+        for list_chunk in self.get_list_chunk_list(self.valid_data, self.thread_count):
+            my_process = multiprocessing.Process(target=self.download_and_save_photos, args=(list_chunk,))
+            my_processes.append(my_process)
+            my_process.start()
+
+        for process in my_processes:
+            process.join()
+
+        self.logger.info(f'run_process_job method finish success!')
+
+
 def main():
 
     storage = Storage('downloads')
 
-    x = JSONPlaceholderTreadCommand(storage, Client, 50)
-    x.run_threads_job()
+    x = JSONPlaceholderTreadCommand(storage, Client, 10)
+    # x.run_threads_job()
+    x.run_process_job()
 
 
 if __name__ == '__main__':
