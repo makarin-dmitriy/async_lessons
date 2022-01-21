@@ -278,7 +278,7 @@ class JSONPlaceholderTreadCommand:
     albums_url = 'https://jsonplaceholder.typicode.com/albums/'
     photos_url = 'https://jsonplaceholder.typicode.com/photos/'
 
-    def __init__(self, storage: Storage, client_class: [Client], thread_count: int = 1):
+    def __init__(self, storage: Storage, client_class: [Client], thread_count: int):
         """
 
         :param storage:
@@ -396,14 +396,25 @@ class JSONPlaceholderTreadCommand:
         self.logger.info(f'run_process_job method finish success!')
 
 
-def main():
+if __name__ == '__main__':
+
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Program download photos from site https://jsonplaceholder.'
+                                                 'typicode.com using оr threads or processes. '
+                                                 'Example: python main.py threads -c 10')
+    parser.add_argument('job_type', type=str, choices=['threads', 'processes'],
+                        help='Сhooses how to do the job')
+    parser.add_argument('-c', '--count', type=int, default=1, help='thread/process count(integer). Must be > 0')
+    args = parser.parse_args()
+
+    if args.count <= 0:
+        parser.error(f'argument -c/--count: invalid int value: {args.count}')
 
     storage = Storage('downloads')
+    command = JSONPlaceholderTreadCommand(storage, Client, args.count)
 
-    x = JSONPlaceholderTreadCommand(storage, Client, 10)
-    # x.run_threads_job()
-    x.run_process_job()
-
-
-if __name__ == '__main__':
-    main()
+    if args.job_type == 'threads':
+        command.run_threads_job()
+    elif args.job_type == 'processes':
+        command.run_process_job()
