@@ -313,7 +313,11 @@ class JSONPlaceholderTreadCommand:
                     album['photos'].append(photo)
 
         album_schema = AlbumSchema(many=True)
-        valid_data = album_schema.load(data['album_data'])
+        try:
+            valid_data = album_schema.load(data['album_data'])
+        except marshmallow.ValidationError as ex:
+            self.logger.error(f'Input data is not valid')
+            sys.exit(f'Input data is not valid({ex.messages})')
 
         self.valid_data = valid_data
         self.logger.debug(f'Data downloaded and is valid')
