@@ -6,6 +6,9 @@ name = "pypi"
 [packages]
 requests = "*"
 marshmallow = "*"
+asyncio = "*"
+aiohttp = "*"
+aiofile = "*"
 
 [dev-packages]
 

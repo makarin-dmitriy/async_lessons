@@ -11,6 +11,10 @@ import math
 import threading
 import multiprocessing
 import logging
+import asyncio
+import aiohttp
+import io
+import aiofile
 
 
 class Photo:
@@ -187,7 +191,7 @@ class Client:
         """Возвращает расширение файла."""
 
         if not self.response:
-            self.get()
+            self.stream_get()
 
         return mimetypes.guess_extension(self.response.headers.get('Content-Type'))
 
@@ -250,8 +254,37 @@ class Storage:
         else:
             self.logger.debug(f'file({file_name}) already exists')
 
+    async def async_save_file(self, file: typing.Any, file_directory: str, file_name: str,
+                              file_extension: typing.Optional[str] = None) -> None:
+        """Сохраняет файл асинхронно. Создаёт каталог, если он не существует.
 
-class JSONPlaceholderTreadCommand:
+        :param file: файлоподобный объект
+        :param file_directory: каталог для сохранения
+        :param file_name: название файла
+        :param file_extension: расширение файла
+        :return:
+        """
+
+        if file_extension:
+            file_name += file_extension
+
+        dir_path = self.base_dir / file_directory
+        dir_path.mkdir(parents=True, exist_ok=True)
+        file_path = dir_path / file_name
+
+        if not file_path.exists():
+            async with aiofile.async_open(file_path, 'wb') as af:  # асинхронная работа с файлом
+                await af.write(await file.read())
+
+            # with file_path.open(mode='wb') as f:                 # синхронная работа с файлом
+            #     shutil.copyfileobj(file, f)
+
+            self.logger.debug(f'file({file_name}) saved')
+        else:
+            self.logger.debug(f'file({file_name}) already exists')
+
+
+class JSONPlaceholderCommand:
     """Класс для обработки и манипулирования данными."""
 
     def __new__(cls, *args, **kwargs):
@@ -262,7 +295,7 @@ class JSONPlaceholderTreadCommand:
         """
 
         if not hasattr(cls, 'logger'):
-            logger = logging.getLogger('JSONPlaceholderTreadCommand')
+            logger = logging.getLogger('JSONPlaceholderCommand')
             logger.setLevel(logging.DEBUG)
             ch = logging.StreamHandler()
             ch.setLevel(logging.DEBUG)
@@ -272,7 +305,7 @@ class JSONPlaceholderTreadCommand:
 
             cls.logger = logger
 
-        instance = super(JSONPlaceholderTreadCommand, cls).__new__(cls)
+        instance = super(JSONPlaceholderCommand, cls).__new__(cls)
         return instance
 
     albums_url = 'https://jsonplaceholder.typicode.com/albums/'
@@ -322,7 +355,6 @@ class JSONPlaceholderTreadCommand:
         self.valid_data = valid_data
         self.logger.debug(f'Data downloaded and is valid')
 
-    # @timing.timing
     def download_and_save_photos(self, album_list: list[Album]):
         """Загружает и сохраняет фотографии.
 
@@ -360,6 +392,33 @@ class JSONPlaceholderTreadCommand:
             list_chunk = lst[x: n + x]
 
             yield list_chunk
+
+    async def async_download_and_save_photo(self, photo: Photo, album: Album):
+        """Загружает и сохраняет фотографию асинхронно.
+
+        :param photo:
+        :param album:
+        :return:
+        """
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(photo.url) as response:
+                    async with response:
+                        if response.status == 200:
+
+                            file_extension = mimetypes.guess_extension(response.content_type)
+
+                            file = response.content                          # асинхронный файлоподобный объект
+                            # file = io.BytesIO(await response.read())       # синхронный файлоподобный объект
+
+                            await self.storage.async_save_file(file, album.title, photo.title, file_extension)
+                        else:
+                            self.logger.error('response status not is 200')
+
+        except Exception as ex:
+            self.logger.error(f'Get exception {ex.__class__.__name__}')
+            raise
 
     @timing.timing
     def run_threads_job(self):
@@ -399,26 +458,45 @@ class JSONPlaceholderTreadCommand:
 
         self.logger.info(f'run_process_job method finish success!')
 
+    @timing.timing
+    async def run_async_job(self):
+        """Выполняет работу асинхронно.
+
+        :return:
+        """
+
+        tasks = list()
+
+        for album in self.valid_data:
+            for photo in album.photos:
+                task = self.async_download_and_save_photo(photo, album)
+                tasks.append(task)
+
+        await asyncio.gather(*tasks)
+
 
 if __name__ == '__main__':
 
     import argparse
 
     parser = argparse.ArgumentParser(description='Program download photos from site https://jsonplaceholder.'
-                                                 'typicode.com using оr threads or processes. '
+                                                 'typicode.com using threads, processes or asynchrony. '
                                                  'Example: python main.py threads -c 10')
-    parser.add_argument('job_type', type=str, choices=['threads', 'processes'],
-                        help='Сhooses how to do the job')
-    parser.add_argument('-c', '--count', type=int, default=1, help='thread/process count(integer). Must be > 0')
+    parser.add_argument('job_type', type=str, choices=['threads', 'processes', 'asynchrony'],
+                        help='Сhooses how to do the job, if positional argument is {asynchrony} option -c is skiped')
+    parser.add_argument('-c', '--count', type=int, default=1, help='thread/process count(integer). Must be > 0,')
+
     args = parser.parse_args()
 
     if args.count <= 0:
         parser.error(f'argument -c/--count: invalid int value: {args.count}')
 
     storage = Storage('downloads')
-    command = JSONPlaceholderTreadCommand(storage, Client, args.count)
+    command = JSONPlaceholderCommand(storage, Client, args.count)
 
     if args.job_type == 'threads':
         command.run_threads_job()
     elif args.job_type == 'processes':
         command.run_process_job()
+    if args.job_type == 'asynchrony':
+        asyncio.run(command.run_async_job())
